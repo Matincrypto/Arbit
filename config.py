@@ -59,4 +59,5 @@ CHASING_DELAY = 2
 TELEGRAM_BOT_TOKEN = "8160137815:AAFkRCWEIUTAUVZWcGDqvgH8z-meVoSu-FM"
 
 # لیست ادمین‌ها (اختیاری: برای محدود کردن دسترسی به ربات در آینده)
-ADMIN_IDS = [123456789]
+
+ADMIN_IDS = [119385059]
