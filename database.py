@@ -16,13 +16,12 @@ class DatabaseHandler:
         conn = self.get_connection()
         cursor = conn.cursor()
 
-        # جدول کاربران با فیلد نام و پیش‌فرض‌های جدید
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             telegram_id INTEGER UNIQUE NOT NULL,
-            full_name TEXT,                         -- نام کاربر (جدید)
-            phone_number TEXT,                      -- شماره موبایل
+            full_name TEXT,
+            phone_number TEXT,
             wallex_api_key TEXT,
             
             -- مدیریت سرمایه
@@ -34,12 +33,12 @@ class DatabaseHandler:
             -- مدیریت ریسک
             stop_loss_percent REAL DEFAULT 0,
             
-            -- فیلترها (ذخیره به صورت JSON)
-            allowed_strategies TEXT DEFAULT '[]',   -- استراتژی‌های انتخاب شده
-            allowed_grades TEXT DEFAULT '[]',       -- گریدهای انتخاب شده (Q1, Q2...)
-            blocked_coins TEXT DEFAULT '[]',
+            -- فیلترها
+            allowed_strategies TEXT DEFAULT '[]',
+            allowed_grades TEXT DEFAULT '[]',
+            allowed_coins TEXT DEFAULT '[]',     -- ستون جدید: ارزهای مجاز
 
-            is_active BOOLEAN DEFAULT 0,            -- پیش‌فرض غیرفعال
+            is_active BOOLEAN DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         ''')
@@ -68,7 +67,7 @@ class DatabaseHandler:
         
         conn.commit()
         conn.close()
-        print(f"✅ دیتابیس {self.db_name} با ساختار جدید آپدیت شد.")
+        print(f"✅ دیتابیس {self.db_name} آپدیت شد.")
 
 if __name__ == "__main__":
     db = DatabaseHandler()
