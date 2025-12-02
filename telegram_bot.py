@@ -72,7 +72,7 @@ class TradingBotUI:
     async def get_name(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['full_name'] = update.message.text
         
-        # درخواست شماره موبایل (با دکمه اشتراک گذاری برای راحتی)
+        # درخواست شماره موبایل
         contact_btn = KeyboardButton("📱 ارسال شماره موبایل", request_contact=True)
         markup = ReplyKeyboardMarkup([[contact_btn]], resize_keyboard=True, one_time_keyboard=True)
         
@@ -87,7 +87,6 @@ class TradingBotUI:
 
     # دریافت شماره موبایل
     async def get_phone(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        # هندل کردن ارسال کانتکت یا متن دستی
         if update.message.contact:
             phone = update.message.contact.phone_number
         else:
@@ -160,7 +159,8 @@ class TradingBotUI:
                 
                 # آماده‌سازی برای انتخاب استراتژی
                 context.user_data['strategies'] = []
-                await self.ask_strategies(update)
+                # اصلاح شده: پاس دادن context به تابع ask_strategies
+                await self.ask_strategies(update, context)
                 return GET_STRATEGIES
                 
             elif resp.status_code == 401:
@@ -174,8 +174,8 @@ class TradingBotUI:
             await update.message.reply_text(f"❌ خطای شبکه: {e}. لطفاً مجدد تلاش کنید.")
             return GET_API
 
-    # تابع کمکی برای نمایش دکمه‌های استراتژی
-    async def ask_strategies(self, update: Update):
+    # تابع کمکی برای نمایش دکمه‌های استراتژی (اصلاح شده)
+    async def ask_strategies(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [
             ['Internal', 'G1'],
             ['Computiational'],
@@ -191,7 +191,6 @@ class TradingBotUI:
             f"✅ انتخاب‌های فعلی: **{selected if selected else '(خالی)'}**\n\n"
             "_(ربات فقط سیگنال‌های این استراتژی‌ها را خرید می‌کند)_"
         )
-        # در اولین بار فراخوانی update.message وجود دارد
         if update.message:
             await update.message.reply_text(msg, reply_markup=markup)
 
@@ -219,7 +218,6 @@ class TradingBotUI:
                 await update.message.reply_text(f"➕ اضافه شد: {text}")
             
             context.user_data['strategies'] = current_list
-            # نمایش مجدد لیست
             selected = ", ".join(current_list)
             await update.message.reply_text(f"لیست فعلی: {selected}")
             return GET_STRATEGIES
