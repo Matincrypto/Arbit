@@ -1,0 +1,8 @@
+# ارتباط با API های وب (Wallex و Signal Pool)
+requests==2.31.0
+
+# ساخت ربات تلگرام (نسخه Async)
+python-telegram-bot==20.7
+
+# (اختیاری) برای مدیریت متغیرهای محیطی اگر بخواهید توکن را مخفی کنید
+python-dotenv==1.0.0
