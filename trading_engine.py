@@ -8,6 +8,7 @@ from config import BUY_TIMEOUT_SECONDS
 
 class TradingEngine:
     def __init__(self):
+        # نام صحیح متغیر اینجاست:
         self.db_handler = DatabaseHandler()
 
     def process_signal(self, signal_data):
@@ -15,7 +16,6 @@ class TradingEngine:
         conn = self.db_handler.get_connection()
         cursor = conn.cursor()
         
-        # دریافت کاربران فعال
         cursor.execute("SELECT * FROM users WHERE is_active = 1")
         users = cursor.fetchall()
         
@@ -27,27 +27,21 @@ class TradingEngine:
 
     def _is_user_eligible(self, user, signal, conn):
         try:
-            # 1. بررسی استراتژی
-            # اگر ستون allowed_strategies خالی یا نال بود، لیست خالی بذار
             strats_json = user['allowed_strategies'] if user['allowed_strategies'] else '[]'
             allowed_strategies = json.loads(strats_json)
             if signal['strategy_name'] not in allowed_strategies:
                 return False
 
-            # 2. بررسی گرید
             grades_json = user['allowed_grades'] if user['allowed_grades'] else '[]'
             allowed_grades = json.loads(grades_json)
             if signal['signal_grade'] not in allowed_grades:
                 return False
 
-            # 3. بررسی کوین‌های مجاز (اینجا قبلاً خطا می‌داد چون ستون جدید است)
             coins_json = user['allowed_coins'] if user['allowed_coins'] else '[]'
             allowed_coins = json.loads(coins_json)
             if signal['coin'] not in allowed_coins:
-                # print(f"ارز {signal['coin']} برای {user['full_name']} مجاز نیست.")
                 return False
 
-            # 4. بررسی سقف دارایی فریز شده (ستون‌های جدید)
             cursor = conn.cursor()
             cursor.execute('''
                 SELECT SUM(buy_amount * CAST(signal_entry_price AS REAL)) 
@@ -57,7 +51,6 @@ class TradingEngine:
             res = cursor.fetchone()
             current_frozen = res[0] if res and res[0] else 0
             
-            # استفاده از ستون‌های جدید max_frozen_tmn/usdt
             if signal['pair'] == 'TMN':
                 max_limit = user['max_frozen_tmn']
                 new_cost = user['buy_amount_tmn']
@@ -81,7 +74,6 @@ class TradingEngine:
         symbol = f"{signal['coin']}{signal['pair']}"
         entry_price = signal['entry_price']
         
-        # تعیین بودجه بر اساس نوع جفت ارز
         budget = user['buy_amount_tmn'] if signal['pair'] == 'TMN' else user['buy_amount_usdt']
         
         raw_quantity = float(budget) / float(entry_price)
@@ -106,7 +98,8 @@ class TradingEngine:
         conn.commit()
 
     def monitor_orders(self):
-        conn = self.db.get_connection()
+        # --- اصلاح شده: استفاده از db_handler ---
+        conn = self.db_handler.get_connection() 
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM trades WHERE buy_status = 'BUY_SUBMITTED'")
         active_buys = cursor.fetchall()
