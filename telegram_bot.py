@@ -1,6 +1,8 @@
+# telegram_bot.py
 import logging
+import json
 import requests
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, KeyboardButton
 from telegram.ext import (
     ApplicationBuilder,
     ContextTypes,
@@ -12,288 +14,400 @@ from telegram.ext import (
 from database import DatabaseHandler
 from config import TELEGRAM_BOT_TOKEN, WALLEX_BASE_URL, DEFAULT_HEADERS
 
-# تنظیمات لاگ (برای دیدن خطاها در ترمینال)
+# تنظیمات لاگ
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 
-# تعریف مراحل گفتگو (States)
+# مراحل وضعیت گفتگو (Wizard States)
 (
+    GET_NAME,
+    GET_PHONE,
+    GET_CAPITAL_TMN,
+    GET_CAPITAL_USDT,
     GET_API,
-    SET_BUY_TMN,
-    SET_BUY_USDT,
-    SET_STOP_LOSS,
-    SET_MAX_FROZEN_TMN,
-    SET_MAX_FROZEN_USDT
-) = range(6)
-
-# کیبورد اصلی منو
-MAIN_MENU_KEYBOARD = [
-    ['🔑 ثبت API Key', '💰 تنظیمات مبلغ خرید'],
-    ['🛑 مدیریت ریسک', '📊 گزارش حساب'],
-    ['✅ فعال‌سازی ربات', '❌ توقف ربات']
-]
-
+    GET_STRATEGIES,
+    GET_GRADES
+) = range(7)
 
 class TradingBotUI:
     def __init__(self, token):
         self.app = ApplicationBuilder().token(token).build()
         self.db = DatabaseHandler()
 
-    # --- دستور Start و منوی اصلی ---
+    # -------------------------------------------------------------------------
+    # بخش ۱: شروع و بررسی وضعیت ثبت‌نام
+    # -------------------------------------------------------------------------
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = update.effective_user
         conn = self.db.get_connection()
         cursor = conn.cursor()
-
-        # ثبت کاربر در دیتابیس اگر وجود نداشت
+        
+        # چک میکنیم آیا کاربر قبلا ثبت نام کرده؟
         cursor.execute("SELECT * FROM users WHERE telegram_id = ?", (user.id,))
-        if not cursor.fetchone():
-            cursor.execute("INSERT INTO users (telegram_id) VALUES (?)", (user.id,))
-            conn.commit()
-            await update.message.reply_text(f"سلام {user.first_name} 👋\nحساب کاربری شما ایجاد شد.")
-        else:
-            await update.message.reply_text(f"سلام مجدد {user.first_name} 🌹")
-
+        db_user = cursor.fetchone()
         conn.close()
-        await self.show_menu(update)
 
-    async def show_menu(self, update: Update):
-        markup = ReplyKeyboardMarkup(MAIN_MENU_KEYBOARD, resize_keyboard=True)
-        await update.message.reply_text("چه کاری انجام دهم؟ 👇", reply_markup=markup)
+        if db_user:
+            # اگر ثبت نام کرده بود، منوی اصلی را نشان بده
+            await self.show_main_menu(update, db_user)
+        else:
+            # اگر ثبت نام نکرده بود، وارد پروسه ثبت نام شو
+            await update.message.reply_text(
+                f"سلام {user.first_name} خوش آمدید! 👋\n\n"
+                "برای استفاده از ربات معامله‌گر، نیاز به ایجاد حساب کاربری داریم.\n"
+                "ما در چند مرحله کوتاه اطلاعات لازم را از شما می‌گیریم.\n\n"
+                "🔹 **مرحله ۱ از ۷:**\n"
+                "لطفاً **نام و نام خانوادگی** خود را وارد کنید.\n"
+                "_(این نام برای گزارش‌دهی به شما استفاده می‌شود)_"
+            )
+            return GET_NAME
 
-    # --- بخش ۱: ثبت و اعتبارسنجی API ---
-    async def start_api_flow(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # -------------------------------------------------------------------------
+    # بخش ۲: فلو ثبت نام (Wizard)
+    # -------------------------------------------------------------------------
+    
+    # دریافت نام
+    async def get_name(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        context.user_data['full_name'] = update.message.text
+        
+        # درخواست شماره موبایل (با دکمه اشتراک گذاری برای راحتی)
+        contact_btn = KeyboardButton("📱 ارسال شماره موبایل", request_contact=True)
+        markup = ReplyKeyboardMarkup([[contact_btn]], resize_keyboard=True, one_time_keyboard=True)
+        
         await update.message.reply_text(
-            "لطفاً API Key خود را از پنل کاربری والکس کپی کرده و ارسال کنید:\n"
-            "(برای انصراف /cancel را بزنید)",
+            "✅ نام شما ثبت شد.\n\n"
+            "🔹 **مرحله ۲ از ۷:**\n"
+            "لطفاً **شماره موبایل** خود را وارد کنید یا از دکمه زیر استفاده کنید.\n"
+            "_(شماره شما برای اطلاع‌رسانی‌های اضطراری و امنیتی استفاده می‌شود و نزد ما محفوظ است.)_",
+            reply_markup=markup
+        )
+        return GET_PHONE
+
+    # دریافت شماره موبایل
+    async def get_phone(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        # هندل کردن ارسال کانتکت یا متن دستی
+        if update.message.contact:
+            phone = update.message.contact.phone_number
+        else:
+            phone = update.message.text
+            
+        context.user_data['phone'] = phone
+        
+        await update.message.reply_text(
+            "✅ شماره موبایل ثبت شد.\n\n"
+            "🔹 **مرحله ۳ از ۷:**\n"
+            "مبلغ سرمایه درگیر برای هر خرید **تومانی** را وارد کنید (به تومان).\n"
+            "مثال: `500000` (برای پانصد هزار تومان)\n\n"
+            "_(وقتی سیگنال تومان ارسال می‌شود، ربات دقیقاً به این اندازه خرید می‌کند)_",
             reply_markup=ReplyKeyboardRemove()
         )
-        return GET_API
+        return GET_CAPITAL_TMN
 
-    async def verify_and_save_api(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        api_key = update.message.text.strip()
-        user_id = update.effective_user.id
-
-        await update.message.reply_text("⏳ در حال بررسی اعتبار کلید با سرور والکس...")
-
-        # اعتبارسنجی واقعی: درخواست گرفتن موجودی کیف پول
-        # /v1/account/balances
-        url = f"{WALLEX_BASE_URL}/v1/account/balances"
-        headers = DEFAULT_HEADERS.copy()
-        headers["X-API-Key"] = api_key
-
-        try:
-            response = requests.get(url, headers=headers, timeout=10)
-
-            if response.status_code == 200 and response.json().get('success'):
-                # کلید معتبر است -> ذخیره در دیتابیس
-                conn = self.db.get_connection()
-                conn.execute("UPDATE users SET wallex_api_key = ? WHERE telegram_id = ?", (api_key, user_id))
-                conn.commit()
-                conn.close()
-
-                await update.message.reply_text("✅ API Key تایید و ذخیره شد.")
-            elif response.status_code == 401:
-                await update.message.reply_text("⛔️ کلید نامعتبر است (خطای 401). لطفاً دوباره تلاش کنید.")
-                return ConversationHandler.END  # یا میتوانیم اجازه دهیم دوباره بفرستد
-            else:
-                await update.message.reply_text(f"⚠️ خطا در ارتباط با والکس: {response.status_code}")
-
-        except Exception as e:
-            await update.message.reply_text(f"❌ خطای شبکه: {e}")
-
-        await self.show_menu(update)
-        return ConversationHandler.END
-
-    # --- بخش ۲: تنظیمات مبلغ خرید (Capital) ---
-    async def start_capital_flow(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await update.message.reply_text(
-            "💵 لطفاً مبلغ خرید برای هر پله **تومانی** را به تومان وارد کنید:\n"
-            "(مثلاً: 500000)",
-            reply_markup=ReplyKeyboardRemove()
-        )
-        return SET_BUY_TMN
-
-    async def set_buy_tmn(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # دریافت سرمایه تومانی
+    async def get_capital_tmn(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             amount = float(update.message.text)
             context.user_data['buy_tmn'] = amount
-            await update.message.reply_text("💵 حالا مبلغ خرید برای بازارهای **تتری** را وارد کنید (مثلاً: 10):")
-            return SET_BUY_USDT
-        except ValueError:
-            await update.message.reply_text("لطفاً فقط عدد وارد کنید.")
-            return SET_BUY_TMN
-
-    async def set_buy_usdt(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        try:
-            amount = float(update.message.text)
-            user_id = update.effective_user.id
-            buy_tmn = context.user_data['buy_tmn']
-
-            conn = self.db.get_connection()
-            conn.execute(
-                "UPDATE users SET buy_amount_tmn = ?, buy_amount_usdt = ? WHERE telegram_id = ?",
-                (buy_tmn, amount, user_id)
-            )
-            conn.commit()
-            conn.close()
-
-            await update.message.reply_text(f"✅ تنظیمات ذخیره شد:\nخرید تومانی: {buy_tmn:,}\nخرید تتری: {amount}")
-            await self.show_menu(update)
-            return ConversationHandler.END
-        except ValueError:
-            await update.message.reply_text("لطفاً فقط عدد وارد کنید.")
-            return SET_BUY_USDT
-
-    # --- بخش ۳: مدیریت ریسک (Risk Management) ---
-    async def start_risk_flow(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await update.message.reply_text(
-            "🛑 درصد **حد ضرر شناور** را وارد کنید (مثلاً 2 برای 2%):\n(عدد 0 یعنی غیرفعال)",
-            reply_markup=ReplyKeyboardRemove()
-        )
-        return SET_STOP_LOSS
-
-    async def set_stop_loss(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        try:
-            sl = float(update.message.text)
-            context.user_data['sl'] = sl
+            
             await update.message.reply_text(
-                "🔒 **سقف مجاز دارایی فریز شده تومانی** چقدر باشد؟\n(اگر بیشتر از این مبلغ سفارش باز داشته باشید، خرید جدید انجام نمی‌شود)")
-            return SET_MAX_FROZEN_TMN
+                "🔹 **مرحله ۴ از ۷:**\n"
+                "مبلغ سرمایه درگیر برای هر خرید **تتری** را وارد کنید (به تتر).\n"
+                "مثال: `20` (برای بیست تتر)\n\n"
+                "_(برای سیگنال‌های جفت تتر استفاده می‌شود)_"
+            )
+            return GET_CAPITAL_USDT
         except ValueError:
-            await update.message.reply_text("لطفاً عدد وارد کنید.")
-            return SET_STOP_LOSS
+            await update.message.reply_text("لطفاً فقط عدد وارد کنید (بدون حروف و کاما).")
+            return GET_CAPITAL_TMN
 
-    async def set_max_frozen_tmn(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # دریافت سرمایه تتری
+    async def get_capital_usdt(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             amount = float(update.message.text)
-            context.user_data['max_frozen_tmn'] = amount
-            await update.message.reply_text("🔒 **سقف مجاز دارایی فریز شده تتری** چقدر باشد؟")
-            return SET_MAX_FROZEN_USDT
-        except ValueError:
-            await update.message.reply_text("لطفاً عدد وارد کنید.")
-            return SET_MAX_FROZEN_TMN
-
-    async def set_max_frozen_usdt(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        try:
-            max_usdt = float(update.message.text)
-            user_id = update.effective_user.id
-            sl = context.user_data['sl']
-            max_tmn = context.user_data['max_frozen_tmn']
-
-            conn = self.db.get_connection()
-            conn.execute(
-                '''UPDATE users SET 
-                   stop_loss_percent = ?, max_frozen_tmn = ?, max_frozen_usdt = ? 
-                   WHERE telegram_id = ?''',
-                (sl, max_tmn, max_usdt, user_id)
+            context.user_data['buy_usdt'] = amount
+            
+            await update.message.reply_text(
+                "✅ تنظیمات سرمایه انجام شد.\n\n"
+                "🔹 **مرحله ۵ از ۷ (بسیار مهم):**\n"
+                "لطفاً **API Key** حساب والکس خود را ارسال کنید.\n\n"
+                "ℹ️ **چرا API میگیریم؟**\n"
+                "برای اینکه ربات بتواند به جای شما سفارش خرید و فروش بگذارد. ما فقط دسترسی ترید نیاز داریم.\n"
+                "_(کلید شما اعتبارسنجی می‌شود)_"
             )
-            conn.commit()
-            conn.close()
-
-            await update.message.reply_text("✅ تنظیمات ریسک بروزرسانی شد.")
-            await self.show_menu(update)
-            return ConversationHandler.END
+            return GET_API
         except ValueError:
-            await update.message.reply_text("لطفاً عدد وارد کنید.")
-            return SET_MAX_FROZEN_USDT
+            await update.message.reply_text("لطفاً فقط عدد وارد کنید.")
+            return GET_CAPITAL_USDT
 
-    # --- فعال/غیرفعال سازی و گزارش ---
-    async def toggle_bot(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # دریافت و اعتبارسنجی API Key
+    async def get_api(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        api_key = update.message.text.strip()
+        
+        await update.message.reply_text("⏳ در حال اتصال به والکس جهت بررسی اعتبار کلید...")
+        
+        # اعتبارسنجی با والکس
+        url = f"{WALLEX_BASE_URL}/v1/account/balances"
+        headers = DEFAULT_HEADERS.copy()
+        headers["X-API-Key"] = api_key
+        
+        try:
+            resp = requests.get(url, headers=headers, timeout=10)
+            if resp.status_code == 200 and resp.json().get('success'):
+                context.user_data['api_key'] = api_key
+                await update.message.reply_text("✅ کلید API معتبر است.")
+                
+                # آماده‌سازی برای انتخاب استراتژی
+                context.user_data['strategies'] = []
+                await self.ask_strategies(update)
+                return GET_STRATEGIES
+                
+            elif resp.status_code == 401:
+                await update.message.reply_text("⛔️ کلید نامعتبر است (خطای 401). لطفاً کلید صحیح را ارسال کنید.")
+                return GET_API
+            else:
+                await update.message.reply_text(f"⚠️ خطای عجیب از والکس ({resp.status_code}). لطفاً مجدد تلاش کنید.")
+                return GET_API
+                
+        except Exception as e:
+            await update.message.reply_text(f"❌ خطای شبکه: {e}. لطفاً مجدد تلاش کنید.")
+            return GET_API
+
+    # تابع کمکی برای نمایش دکمه‌های استراتژی
+    async def ask_strategies(self, update: Update):
+        keyboard = [
+            ['Internal', 'G1'],
+            ['Computiational'],
+            ['✅ تایید و ادامه']
+        ]
+        markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        
+        selected = ", ".join(context.user_data.get('strategies', []))
+        msg = (
+            "🔹 **مرحله ۶ از ۷:**\n"
+            "کدام **استراتژی‌ها** را می‌خواهید دنبال کنید؟\n"
+            "روی گزینه‌ها کلیک کنید. در آخر دکمه تایید را بزنید.\n\n"
+            f"✅ انتخاب‌های فعلی: **{selected if selected else '(خالی)'}**\n\n"
+            "_(ربات فقط سیگنال‌های این استراتژی‌ها را خرید می‌کند)_"
+        )
+        # در اولین بار فراخوانی update.message وجود دارد
+        if update.message:
+            await update.message.reply_text(msg, reply_markup=markup)
+
+    # دریافت انتخاب‌های استراتژی
+    async def get_strategies_step(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = update.message.text
-        is_active = 1 if 'فعال' in text else 0
+        current_list = context.user_data.get('strategies', [])
+        
+        if text == '✅ تایید و ادامه':
+            if not current_list:
+                await update.message.reply_text("⚠️ لطفاً حداقل یک استراتژی انتخاب کنید.")
+                return GET_STRATEGIES
+            
+            # رفتن به مرحله بعد
+            context.user_data['grades'] = []
+            await self.ask_grades(update, context)
+            return GET_GRADES
+            
+        elif text in ['Internal', 'G1', 'Computiational']:
+            if text in current_list:
+                current_list.remove(text)
+                await update.message.reply_text(f"🗑 حذف شد: {text}")
+            else:
+                current_list.append(text)
+                await update.message.reply_text(f"➕ اضافه شد: {text}")
+            
+            context.user_data['strategies'] = current_list
+            # نمایش مجدد لیست
+            selected = ", ".join(current_list)
+            await update.message.reply_text(f"لیست فعلی: {selected}")
+            return GET_STRATEGIES
+        else:
+            await update.message.reply_text("لطفاً از دکمه‌های پایین استفاده کنید.")
+            return GET_STRATEGIES
+
+    # تابع کمکی برای نمایش دکمه‌های گرید
+    async def ask_grades(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        keyboard = [
+            ['Q1', 'Q2'],
+            ['Q3', 'Q4'],
+            ['✅ پایان ثبت نام']
+        ]
+        markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        
+        selected = ", ".join(context.user_data.get('grades', []))
+        msg = (
+            "🔹 **مرحله ۷ از ۷ (آخر):**\n"
+            "کدام **گریدها** (کیفیت سیگنال) را قبول می‌کنید؟\n"
+            "معمولاً Q1 بهترین کیفیت است.\n\n"
+            f"✅ انتخاب‌های فعلی: **{selected if selected else '(خالی)'}**"
+        )
+        await update.message.reply_text(msg, reply_markup=markup)
+
+    # دریافت انتخاب‌های گرید و ذخیره نهایی
+    async def get_grades_step(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        text = update.message.text
+        current_list = context.user_data.get('grades', [])
+        
+        if text == '✅ پایان ثبت نام':
+            if not current_list:
+                await update.message.reply_text("⚠️ لطفاً حداقل یک گرید انتخاب کنید.")
+                return GET_GRADES
+            
+            # --- ذخیره نهایی در دیتابیس ---
+            user_id = update.effective_user.id
+            data = context.user_data
+            
+            conn = self.db.get_connection()
+            try:
+                conn.execute('''
+                    INSERT INTO users (
+                        telegram_id, full_name, phone_number, wallex_api_key,
+                        buy_amount_tmn, buy_amount_usdt,
+                        allowed_strategies, allowed_grades, is_active
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+                ''', (
+                    user_id, data['full_name'], data['phone'], data['api_key'],
+                    data['buy_tmn'], data['buy_usdt'],
+                    json.dumps(data['strategies']), json.dumps(current_list)
+                ))
+                conn.commit()
+                await update.message.reply_text(
+                    "🎉 **حساب کاربری شما با موفقیت ایجاد شد!**\n\n"
+                    "⚠️ توجه: حساب شما به صورت پیش‌فرض **غیرفعال** است تا زمانی که خودتان آماده باشید.\n"
+                    "از منوی زیر گزینه «✅ فعال‌سازی ربات» را بزنید.",
+                    reply_markup=ReplyKeyboardRemove()
+                )
+                
+                # نمایش منوی اصلی
+                cursor = conn.cursor()
+                cursor.execute("SELECT * FROM users WHERE telegram_id = ?", (user_id,))
+                new_user = cursor.fetchone()
+                await self.show_main_menu(update, new_user)
+                
+            except Exception as e:
+                logging.error(e)
+                await update.message.reply_text("❌ خطا در ذخیره اطلاعات. لطفا دوباره تلاش کنید.")
+            finally:
+                conn.close()
+            
+            return ConversationHandler.END
+            
+        elif text in ['Q1', 'Q2', 'Q3', 'Q4']:
+            if text in current_list:
+                current_list.remove(text)
+                await update.message.reply_text(f"🗑 حذف شد: {text}")
+            else:
+                current_list.append(text)
+                await update.message.reply_text(f"➕ اضافه شد: {text}")
+            
+            context.user_data['grades'] = current_list
+            await update.message.reply_text(f"لیست فعلی: {', '.join(current_list)}")
+            return GET_GRADES
+        else:
+            await update.message.reply_text("لطفاً از دکمه‌ها استفاده کنید.")
+            return GET_GRADES
+
+    # -------------------------------------------------------------------------
+    # بخش ۳: منوی اصلی و مدیریت حساب (بعد از لاگین)
+    # -------------------------------------------------------------------------
+    async def show_main_menu(self, update: Update, user_row):
+        is_active = user_row['is_active']
+        status_icon = "🟢" if is_active else "🔴"
+        status_text = "روشن" if is_active else "خاموش"
+        
+        toggle_btn = "❌ توقف ربات" if is_active else "✅ فعال‌سازی ربات"
+        
+        keyboard = [
+            [toggle_btn],
+            ['📊 گزارش وضعیت', '⚙️ تنظیمات مجدد']
+        ]
+        markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        
+        await update.message.reply_text(
+            f"👤 کاربر: {user_row['full_name']}\n"
+            f"وضعیت ربات: {status_icon} **{status_text}**\n\n"
+            "یکی از گزینه‌ها را انتخاب کنید:",
+            reply_markup=markup
+        )
+
+    async def toggle_activation(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
-
+        text = update.message.text
+        
+        new_status = 1 if "فعال‌سازی" in text else 0
+        
         conn = self.db.get_connection()
-        conn.execute("UPDATE users SET is_active = ? WHERE telegram_id = ?", (is_active, user_id))
+        conn.execute("UPDATE users SET is_active = ? WHERE telegram_id = ?", (new_status, user_id))
         conn.commit()
+        
+        # رفرش کردن اطلاعات کاربر برای نمایش منو
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM users WHERE telegram_id = ?", (user_id,))
+        user_row = cursor.fetchone()
         conn.close()
-
-        status_msg = "🟢 ربات فعال شد و آماده شکار سیگنال است." if is_active else "🔴 ربات متوقف شد."
-        await update.message.reply_text(status_msg)
+        
+        msg = "🚀 ربات فعال شد و آماده انجام معامله است." if new_status else "💤 ربات متوقف شد."
+        await update.message.reply_text(msg)
+        await self.show_main_menu(update, user_row)
 
     async def status_report(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
         conn = self.db.get_connection()
         cursor = conn.cursor()
-
-        # اطلاعات کاربر
         cursor.execute("SELECT * FROM users WHERE telegram_id = ?", (user_id,))
         u = cursor.fetchone()
-
-        # آمار معاملات امروز
-        cursor.execute(
-            "SELECT COUNT(*), SUM(buy_amount) FROM trades WHERE user_id = ? AND date(created_at) = date('now')",
-            (u['id'],))
-        stats = cursor.fetchone()
-
         conn.close()
-
+        
         if u:
-            active_icon = "✅" if u['is_active'] else "❌"
-            msg = (
-                f"📊 **گزارش وضعیت حساب**\n"
-                f"--------------------------\n"
-                f"وضعیت کلی: {active_icon}\n"
-                f"حد ضرر: {u['stop_loss_percent']}%\n"
-                f"خرید (TMN): {u['buy_amount_tmn']:,}\n"
-                f"خرید (USDT): {u['buy_amount_usdt']}\n"
-                f"سقف فریز (TMN): {u['max_frozen_tmn']:,}\n"
-                f"--------------------------\n"
-                f"تعداد ترید امروز: {stats[0]}\n"
+            strategies = json.loads(u['allowed_strategies'])
+            grades = json.loads(u['allowed_grades'])
+            
+            report = (
+                f"📋 **مشخصات حساب:**\n"
+                f"نام: {u['full_name']}\n"
+                f"موبایل: {u['phone_number']}\n"
+                f"----------------\n"
+                f"💰 خرید تومانی: {u['buy_amount_tmn']:,} T\n"
+                f"💰 خرید تتری: {u['buy_amount_usdt']} $\n"
+                f"----------------\n"
+                f"🎯 استراتژی‌ها: {', '.join(strategies)}\n"
+                f"💎 گریدها: {', '.join(grades)}\n"
             )
-            await update.message.reply_text(msg, parse_mode='Markdown')
+            await update.message.reply_text(report)
+            await self.show_main_menu(update, u)
 
     async def cancel(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await update.message.reply_text("عملیات لغو شد.",
-                                        reply_markup=ReplyKeyboardMarkup(MAIN_MENU_KEYBOARD, resize_keyboard=True))
+        await update.message.reply_text("❌ عملیات لغو شد.")
         return ConversationHandler.END
 
     def run(self):
-        # 1. هندلر API
-        api_conv = ConversationHandler(
-            entry_points=[MessageHandler(filters.Regex('^🔑'), self.start_api_flow)],
-            states={GET_API: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.verify_and_save_api)]},
-            fallbacks=[CommandHandler("cancel", self.cancel)]
-        )
-
-        # 2. هندلر مبلغ خرید
-        capital_conv = ConversationHandler(
-            entry_points=[MessageHandler(filters.Regex('^💰'), self.start_capital_flow)],
+        # هندلر مکالمه ثبت نام
+        reg_handler = ConversationHandler(
+            entry_points=[CommandHandler("start", self.start)],
             states={
-                SET_BUY_TMN: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.set_buy_tmn)],
-                SET_BUY_USDT: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.set_buy_usdt)],
+                GET_NAME: [MessageHandler(filters.TEXT, self.get_name)],
+                GET_PHONE: [MessageHandler(filters.CONTACT | filters.TEXT, self.get_phone)],
+                GET_CAPITAL_TMN: [MessageHandler(filters.TEXT, self.get_capital_tmn)],
+                GET_CAPITAL_USDT: [MessageHandler(filters.TEXT, self.get_capital_usdt)],
+                GET_API: [MessageHandler(filters.TEXT, self.get_api)],
+                GET_STRATEGIES: [MessageHandler(filters.TEXT, self.get_strategies_step)],
+                GET_GRADES: [MessageHandler(filters.TEXT, self.get_grades_step)],
             },
             fallbacks=[CommandHandler("cancel", self.cancel)]
         )
 
-        # 3. هندلر ریسک
-        risk_conv = ConversationHandler(
-            entry_points=[MessageHandler(filters.Regex('^🛑'), self.start_risk_flow)],
-            states={
-                SET_STOP_LOSS: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.set_stop_loss)],
-                SET_MAX_FROZEN_TMN: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.set_max_frozen_tmn)],
-                SET_MAX_FROZEN_USDT: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.set_max_frozen_usdt)],
-            },
-            fallbacks=[CommandHandler("cancel", self.cancel)]
-        )
-
-        self.app.add_handler(CommandHandler("start", self.start))
-        self.app.add_handler(api_conv)
-        self.app.add_handler(capital_conv)
-        self.app.add_handler(risk_conv)
-        self.app.add_handler(MessageHandler(filters.Regex('فعال‌سازی|توقف'), self.toggle_bot))
-        self.app.add_handler(MessageHandler(filters.Regex('^📊'), self.status_report))
-
-        print("🤖 بات تلگرام آماده و در حال اجراست...")
+        self.app.add_handler(reg_handler)
+        self.app.add_handler(MessageHandler(filters.Regex('فعال‌سازی|توقف'), self.toggle_activation))
+        self.app.add_handler(MessageHandler(filters.Regex('گزارش وضعیت'), self.status_report))
+        
+        print("🤖 Wizard Bot Started...")
         self.app.run_polling()
 
-
 if __name__ == "__main__":
-    if not TELEGRAM_BOT_TOKEN or "YOUR_TOKEN" in TELEGRAM_BOT_TOKEN:
-        print("❌ خطا: لطفاً ابتدا توکن ربات را در فایل config.py وارد کنید.")
+    if not TELEGRAM_BOT_TOKEN or "YOUR_" in TELEGRAM_BOT_TOKEN:
+        print("❌ خطا: توکن ربات را در فایل config.py تنظیم کنید.")
     else:
         bot = TradingBotUI(TELEGRAM_BOT_TOKEN)
         bot.run()
