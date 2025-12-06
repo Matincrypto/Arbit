@@ -16,10 +16,12 @@ class DatabaseHandler:
         conn = self.get_connection()
         cursor = conn.cursor()
 
+        # جدول کاربران (در واقع جدول حساب‌ها)
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            telegram_id INTEGER UNIQUE NOT NULL,
+            telegram_id INTEGER NOT NULL,           -- دیگر UNIQUE نیست
+            account_name TEXT,                      -- نام دلخواه برای حساب (جدید)
             full_name TEXT,
             phone_number TEXT,
             wallex_api_key TEXT,
@@ -36,18 +38,18 @@ class DatabaseHandler:
             -- فیلترها
             allowed_strategies TEXT DEFAULT '[]',
             allowed_grades TEXT DEFAULT '[]',
-            allowed_coins TEXT DEFAULT '[]',     -- ستون جدید: ارزهای مجاز
+            allowed_coins TEXT DEFAULT '[]',
 
             is_active BOOLEAN DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         ''')
 
-        # جدول معاملات (بدون تغییر)
+        # جدول معاملات
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS trades (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
+            user_id INTEGER,                        -- اشاره به id جدول users (حساب خاص)
             coin_pair TEXT,
             signal_entry_price TEXT,
             signal_target_price TEXT,
@@ -67,7 +69,7 @@ class DatabaseHandler:
         
         conn.commit()
         conn.close()
-        print(f"✅ دیتابیس {self.db_name} آپدیت شد.")
+        print(f"✅ دیتابیس {self.db_name} با قابلیت چندحسابی آماده شد.")
 
 if __name__ == "__main__":
     db = DatabaseHandler()
