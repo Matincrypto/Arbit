@@ -16,26 +16,26 @@ class DatabaseHandler:
         conn = self.get_connection()
         cursor = conn.cursor()
 
-        # جدول کاربران (در واقع جدول حساب‌ها)
+        # Users table (Now supports multiple accounts per telegram_id)
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            telegram_id INTEGER NOT NULL,           -- دیگر UNIQUE نیست
-            account_name TEXT,                      -- نام دلخواه برای حساب (جدید)
+            telegram_id INTEGER NOT NULL,           -- Removed UNIQUE constraint
+            account_name TEXT,                      -- New column for account label
             full_name TEXT,
             phone_number TEXT,
             wallex_api_key TEXT,
             
-            -- مدیریت سرمایه
+            -- Capital Management
             buy_amount_tmn REAL DEFAULT 0,
             buy_amount_usdt REAL DEFAULT 0,
             max_frozen_tmn REAL DEFAULT 0,
             max_frozen_usdt REAL DEFAULT 0,
             
-            -- مدیریت ریسک
+            -- Risk Management
             stop_loss_percent REAL DEFAULT 0,
             
-            -- فیلترها
+            -- Filters
             allowed_strategies TEXT DEFAULT '[]',
             allowed_grades TEXT DEFAULT '[]',
             allowed_coins TEXT DEFAULT '[]',
@@ -45,11 +45,11 @@ class DatabaseHandler:
         )
         ''')
 
-        # جدول معاملات
+        # Trades table
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS trades (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,                        -- اشاره به id جدول users (حساب خاص)
+            user_id INTEGER,
             coin_pair TEXT,
             signal_entry_price TEXT,
             signal_target_price TEXT,
@@ -69,7 +69,7 @@ class DatabaseHandler:
         
         conn.commit()
         conn.close()
-        print(f"✅ دیتابیس {self.db_name} با قابلیت چندحسابی آماده شد.")
+        print(f"✅ Database {self.db_name} ready for Multi-Account support.")
 
 if __name__ == "__main__":
     db = DatabaseHandler()
