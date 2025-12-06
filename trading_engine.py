@@ -8,11 +8,10 @@ from config import BUY_TIMEOUT_SECONDS
 
 class TradingEngine:
     def __init__(self):
-        # نام صحیح متغیر اینجاست:
-        self.db_handler = DatabaseHandler()
+        self.db_handler = DatabaseHandler() # Correct attribute name
 
     def process_signal(self, signal_data):
-        print(f"📩 سیگنال: {signal_data['coin']} | استراتژی: {signal_data['strategy_name']}")
+        print(f"📩 Signal: {signal_data['coin']} | Strategy: {signal_data['strategy_name']}")
         conn = self.db_handler.get_connection()
         cursor = conn.cursor()
         
@@ -59,7 +58,7 @@ class TradingEngine:
                 new_cost = user['buy_amount_usdt']
             
             if (current_frozen + new_cost) > max_limit:
-                print(f"⚠️ سقف دارایی پر است برای {user['full_name']}.")
+                print(f"⚠️ Capital limit reached for {user['full_name']}.")
                 return False
                 
             return True
@@ -76,6 +75,7 @@ class TradingEngine:
         
         budget = user['buy_amount_tmn'] if signal['pair'] == 'TMN' else user['buy_amount_usdt']
         
+        # In a real scenario, fetch precision from market info
         raw_quantity = float(budget) / float(entry_price)
         
         resp = client.place_order(symbol, "BUY", "LIMIT", raw_quantity, entry_price)
@@ -83,7 +83,7 @@ class TradingEngine:
         cursor = conn.cursor()
         if resp.get('success'):
             order_id = resp['result']['clientOrderId']
-            print(f"✅ خرید ثبت شد: {symbol} برای {user['full_name']}")
+            print(f"✅ Buy order placed: {symbol} for {user['full_name']}")
             
             cursor.execute('''
                 INSERT INTO trades (user_id, coin_pair, signal_entry_price, signal_target_price, 
@@ -94,12 +94,11 @@ class TradingEngine:
                   signal['strategy_name'], signal['signal_grade'],
                   order_id, raw_quantity, 'BUY_SUBMITTED', datetime.now(), 'PENDING'))
         else:
-            print(f"❌ خطا در خرید: {resp.get('message')}")
+            print(f"❌ Buy error: {resp.get('message')}")
         conn.commit()
 
     def monitor_orders(self):
-        # --- اصلاح شده: استفاده از db_handler ---
-        conn = self.db_handler.get_connection() 
+        conn = self.db_handler.get_connection() # Fixed: use self.db_handler
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM trades WHERE buy_status = 'BUY_SUBMITTED'")
         active_buys = cursor.fetchall()
@@ -121,7 +120,7 @@ class TradingEngine:
         status = status_resp['result']['status']
         
         if status == 'FILLED':
-            print(f"🎉 خرید {trade['coin_pair']} کامل شد. ثبت فروش...")
+            print(f"🎉 Buy filled for {trade['coin_pair']}. Placing Sell...")
             sell_resp = client.place_order(
                 trade['coin_pair'], "SELL", "LIMIT", 
                 trade['buy_amount'], trade['signal_target_price']
@@ -139,7 +138,7 @@ class TradingEngine:
         else:
             submit_time = datetime.strptime(trade['buy_submit_time'], "%Y-%m-%d %H:%M:%S.%f")
             if (datetime.now() - submit_time).total_seconds() > BUY_TIMEOUT_SECONDS:
-                print(f"⏳ تایم‌اوت خرید {trade['coin_pair']}.")
+                print(f"⏳ Buy timeout for {trade['coin_pair']}.")
                 client.cancel_order(trade['buy_order_id'])
                 cursor.execute("UPDATE trades SET buy_status = 'TIMEOUT_CANCELLED' WHERE id = ?", (trade['id'],))
         
