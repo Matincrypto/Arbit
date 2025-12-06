@@ -42,9 +42,8 @@ class TradingBotUI:
     def get_paginated_keyboard(self, all_items, selected_items, page=0, items_per_page=15, prefix="COIN"):
         keyboard = []
         
-        # دکمه‌های انتخاب همه / حذف همه (جدید)
         keyboard.append([
-            InlineKeyboardButton("✅ انتخاب همه ارزها", callback_data="ALL_SELECT"),
+            InlineKeyboardButton("✅ انتخاب همه", callback_data="ALL_SELECT"),
             InlineKeyboardButton("❌ حذف همه", callback_data="ALL_DESELECT")
         ])
 
@@ -89,7 +88,7 @@ class TradingBotUI:
         return InlineKeyboardMarkup(keyboard)
 
     # -------------------------------------------------------------------------
-    # شروع
+    # شروع و ورود
     # -------------------------------------------------------------------------
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = update.effective_user
@@ -100,34 +99,46 @@ class TradingBotUI:
         conn.close()
 
         if db_user:
+            # اگر کاربر هست، منو را نشان بده
             await self.show_main_menu(update, db_user)
         else:
+            # اگر نیست، برو به ثبت نام
             await update.message.reply_text(
                 f"سلام {user.first_name} عزیز! 👋\n\n"
-                "به ربات معامله‌گر خوش آمدید.\n"
-                "بیایید حساب کاربری شما را بسازیم.\n\n"
+                "به ربات معامله‌گر هوشمند خوش آمدید.\n"
+                "برای شروع اتوماتیک‌سازی معاملات، لطفاً ثبت‌نام کنید.\n\n"
                 "🔹 **مرحله ۱ از ۹:**\n"
                 "لطفاً نام خود را وارد کنید:"
             )
             return GET_NAME
 
+    # --- تابع جدید برای دکمه افزودن حساب ---
+    async def restart_wizard(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """این تابع مستقیم فرآیند ثبت نام را آغاز می‌کند (بدون چک کردن دیتابیس)"""
+        await update.message.reply_text(
+            "🔄 **فرآیند ساخت حساب جدید / تنظیمات مجدد آغاز شد.**\n\n"
+            "🔹 **مرحله ۱ از ۹:**\n"
+            "لطفاً نام خود را وارد کنید:",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        return GET_NAME
+
     # -------------------------------------------------------------------------
-    # فلو ثبت نام
+    # فلو ثبت نام (ویزارد)
     # -------------------------------------------------------------------------
     async def get_name(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         name = update.message.text
         if len(name) < 3:
-            await update.message.reply_text("نام کوتاه است. لطفاً کامل بنویسید:")
+            await update.message.reply_text("نام خیلی کوتاه است. لطفاً کامل وارد کنید:")
             return GET_NAME
 
         context.user_data['full_name'] = name
         btn = KeyboardButton("📱 ارسال شماره موبایل", request_contact=True)
         
         await update.message.reply_text(
-            f"خوش آمدید {name}.\n\n"
+            "✅ نام شما ثبت شد.\n\n"
             "🔹 **مرحله ۲ از ۹:**\n"
-            "شماره موبایل جهت امنیت حساب:\n"
-            "(از دکمه زیر استفاده کنید)",
+            "برای امنیت حساب، لطفاً شماره موبایل خود را ارسال کنید:",
             reply_markup=ReplyKeyboardMarkup([[btn]], resize_keyboard=True, one_time_keyboard=True)
         )
         return GET_PHONE
@@ -138,14 +149,15 @@ class TradingBotUI:
         else:
             txt = update.message.text
             if not txt.isdigit() or len(txt) < 10:
-                await update.message.reply_text("فرمت نامعتبر. لطفاً عدد وارد کنید:")
+                await update.message.reply_text("فرمت شماره صحیح نیست. لطفاً فقط عدد وارد کنید:")
                 return GET_PHONE
             context.user_data['phone'] = txt
 
         await update.message.reply_text(
-            "🔹 **مرحله ۳ از ۹:**\n"
-            "مبلغ خرید برای هر سیگنال **تومانی** (TMN) چقدر باشد؟\n"
-            "(مثال: 500000)",
+            "✅ شماره ثبت شد.\n\n"
+            "🔹 **مرحله ۳ از ۹ (مدیریت سرمایه):**\n"
+            "برای سیگنال‌های تومانی (TMN) چقدر خرید انجام شود؟\n"
+            "عدد را به تومان وارد کنید (مثال: 500000):",
             reply_markup=ReplyKeyboardRemove()
         )
         return GET_CAPITAL_TMN
@@ -154,36 +166,35 @@ class TradingBotUI:
         try:
             val = float(update.message.text)
             if val < 50000:
-                await update.message.reply_text("حداقل خرید ۵۰,۰۰۰ تومان است. اصلاح کنید:")
+                await update.message.reply_text("حداقل خرید ۵۰,۰۰۰ تومان است. لطفاً اصلاح کنید:")
                 return GET_CAPITAL_TMN
-            
             context.user_data['buy_tmn'] = val
             await update.message.reply_text(
                 "🔹 **مرحله ۴ از ۹:**\n"
-                "مبلغ خرید برای هر سیگنال **تتری** (USDT) چقدر باشد؟\n"
-                "(مثال: 20)"
+                "برای سیگنال‌های تتری (USDT) چقدر خرید انجام شود؟\n"
+                "عدد را به تتر وارد کنید (مثال: 20):"
             )
             return GET_CAPITAL_USDT
         except:
-            await update.message.reply_text("فقط عدد وارد کنید:")
+            await update.message.reply_text("لطفاً فقط عدد وارد کنید:")
             return GET_CAPITAL_TMN
 
     async def get_capital_usdt(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             val = float(update.message.text)
             if val < 5:
-                await update.message.reply_text("حداقل خرید ۵ تتر است. اصلاح کنید:")
+                await update.message.reply_text("حداقل خرید ۵ تتر است. لطفاً اصلاح کنید:")
                 return GET_CAPITAL_USDT
-
             context.user_data['buy_usdt'] = val
             await update.message.reply_text(
-                "🔹 **مرحله ۵ از ۹:**\n"
-                "درصد **حد ضرر (Stop Loss)** چقدر باشد؟\n"
-                "(مثال: 2 برای دو درصد. عدد 0 برای غیرفعال):"
+                "🔹 **مرحله ۵ از ۹ (مدیریت ریسک):**\n"
+                "لطفاً درصد **حد ضرر (Stop Loss)** را وارد کنید.\n"
+                "مثال: اگر `2` وارد کنید، با ۲ درصد ضرر ربات می‌فروشد.\n"
+                "(عدد 0 یعنی بدون حد ضرر):"
             )
             return GET_STOP_LOSS
         except:
-            await update.message.reply_text("فقط عدد وارد کنید:")
+            await update.message.reply_text("لطفاً فقط عدد وارد کنید:")
             return GET_CAPITAL_USDT
 
     async def get_stop_loss(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -191,9 +202,10 @@ class TradingBotUI:
             val = float(update.message.text)
             context.user_data['stop_loss'] = val
             await update.message.reply_text(
-                "🔹 **مرحله ۶ از ۹:**\n"
-                "لطفاً **API Key** والکس را ارسال کنید.\n"
-                "(جهت ثبت سفارشات خرید و فروش)"
+                "✅ حد ضرر ثبت شد.\n\n"
+                "🔹 **مرحله ۶ از ۹ (اتصال صرافی):**\n"
+                "لطفاً **API Key** حساب والکس خود را ارسال کنید.\n"
+                "_(ما فقط دسترسی ترید نیاز داریم)_"
             )
             return GET_API
         except:
@@ -202,7 +214,7 @@ class TradingBotUI:
 
     async def get_api(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         api_key = update.message.text.strip()
-        await update.message.reply_text("⏳ بررسی اعتبار کلید...")
+        await update.message.reply_text("⏳ در حال اعتبارسنجی کلید با والکس...")
         
         try:
             url = f"{WALLEX_BASE_URL}/v1/account/balances"
@@ -212,11 +224,10 @@ class TradingBotUI:
             
             if resp.status_code == 200 and resp.json().get('success'):
                 context.user_data['api_key'] = api_key
-                await update.message.reply_text("✅ کلید تایید شد.")
+                await update.message.reply_text("✅ کلید API معتبر است.")
                 
                 context.user_data['strategies'] = []
                 markup = self.get_simple_keyboard(['Internal', 'G1', 'Computiational'], [], "STRAT")
-                
                 await update.message.reply_text(
                     "🔹 **مرحله ۷ از ۹:**\n"
                     "استراتژی‌های مورد نظر را انتخاب کنید:",
@@ -224,10 +235,10 @@ class TradingBotUI:
                 )
                 return GET_STRATEGIES
             else:
-                await update.message.reply_text("⛔️ کلید نامعتبر است. مجدد ارسال کنید:")
+                await update.message.reply_text("⛔️ کلید نامعتبر است. لطفاً کلید صحیح را بفرستید:")
                 return GET_API
         except Exception as e:
-            await update.message.reply_text(f"خطا: {e}")
+            await update.message.reply_text(f"❌ خطای شبکه: {e}")
             return GET_API
 
     async def get_strategies_step(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -238,13 +249,13 @@ class TradingBotUI:
 
         if data == "CONFIRM_STRAT":
             if not curr:
-                await query.answer("حداقل یک مورد انتخاب کنید!", show_alert=True)
+                await query.answer("حداقل یک استراتژی انتخاب کنید!", show_alert=True)
                 return GET_STRATEGIES
             
             context.user_data['grades'] = []
             markup = self.get_simple_keyboard(['Q1', 'Q2', 'Q3', 'Q4'], [], "GRADE")
             await query.message.edit_text("✅ استراتژی‌ها ثبت شد.")
-            await query.message.reply_text("🔹 **مرحله ۸ از ۹:**\nکیفیت سیگنال (گرید) را انتخاب کنید:", reply_markup=markup)
+            await query.message.reply_text("🔹 **مرحله ۸ از ۹:**\nکیفیت (گرید) سیگنال‌ها را انتخاب کنید:", reply_markup=markup)
             return GET_GRADES
         
         elif data.startswith("STRAT_"):
@@ -266,7 +277,7 @@ class TradingBotUI:
                 await query.answer("حداقل یک گرید انتخاب کنید!", show_alert=True)
                 return GET_GRADES
             
-            await query.message.edit_text("⏳ دریافت لیست ارزها از والکس...")
+            await query.message.edit_text("⏳ در حال دریافت لیست ارزها از والکس...")
             client = WallexClient()
             all_coins = client.get_available_coins()
             
@@ -275,11 +286,10 @@ class TradingBotUI:
             context.user_data['page'] = 0   
             
             markup = self.get_paginated_keyboard(all_coins, [], page=0)
-            
             await query.message.reply_text(
                 "🔹 **مرحله ۹ از ۹ (آخر):**\n"
                 "ارزهایی که می‌خواهید معامله شوند را تیک بزنید.\n"
-                "می‌توانید **همه** را انتخاب کنید.",
+                "(می‌توانید **همه** را انتخاب کنید)",
                 reply_markup=markup
             )
             return GET_COINS
@@ -302,29 +312,24 @@ class TradingBotUI:
         all_coins = context.user_data.get('all_available_coins', [])
         current_page = context.user_data.get('page', 0)
 
-        # --- لاجیک انتخاب همه / حذف همه ---
+        # --- انتخاب همه / حذف همه ---
         if data == "ALL_SELECT":
-            # کپی کردن کل لیست ارزها به لیست انتخاب شده‌ها
             selected_coins = list(all_coins)
             context.user_data['coins'] = selected_coins
-            
-            # رفرش کردن صفحه فعلی برای نشان دادن تیک‌ها
             markup = self.get_paginated_keyboard(all_coins, selected_coins, page=current_page)
             await query.edit_message_reply_markup(reply_markup=markup)
-            # نمایش پیام کوچک پایین صفحه
-            await query.answer(f"✅ تمام {len(all_coins)} ارز انتخاب شدند.", show_alert=False)
+            await query.answer("✅ همه ارزها انتخاب شدند.", show_alert=False)
             return GET_COINS
 
         elif data == "ALL_DESELECT":
             selected_coins = []
             context.user_data['coins'] = selected_coins
-            
             markup = self.get_paginated_keyboard(all_coins, selected_coins, page=current_page)
             await query.edit_message_reply_markup(reply_markup=markup)
             await query.answer("❌ همه حذف شدند.", show_alert=False)
             return GET_COINS
 
-        # --- لاجیک صفحه‌بندی ---
+        # --- صفحه‌بندی ---
         elif data == "PAGE_NEXT":
             current_page += 1
             context.user_data['page'] = current_page
@@ -342,13 +347,13 @@ class TradingBotUI:
         elif data == "NOOP":
             return GET_COINS
 
-        # --- لاجیک پایان ---
+        # --- پایان ---
         elif data == "CONFIRM_COIN":
             if not selected_coins:
                 await query.answer("حداقل یک ارز انتخاب کنید!", show_alert=True)
                 return GET_COINS
             
-            await query.message.edit_text("✅ در حال ذخیره تنظیمات حساب...")
+            await query.message.edit_text("✅ در حال ذخیره حساب...")
             
             user_id = update.effective_user.id
             d = context.user_data
@@ -368,7 +373,7 @@ class TradingBotUI:
                     json.dumps(d['strategies']), json.dumps(d['grades']), json.dumps(selected_coins)
                 ))
                 conn.commit()
-                await query.message.reply_text("🎉 حساب شما با موفقیت ساخته/آپدیت شد.\nبرای شروع ترید، دکمه **فعال‌سازی** را بزنید.")
+                await query.message.reply_text("🎉 حساب شما ساخته شد.\nاکنون دکمه **فعال‌سازی** را بزنید.")
                 
                 cursor = conn.cursor()
                 cursor.execute("SELECT * FROM users WHERE telegram_id = ?", (user_id,))
@@ -382,7 +387,6 @@ class TradingBotUI:
                 conn.close()
             return ConversationHandler.END
             
-        # --- لاجیک انتخاب تکی ---
         elif data.startswith("COIN_"):
             coin_symbol = data.split("_")[1]
             if coin_symbol in selected_coins:
@@ -395,7 +399,9 @@ class TradingBotUI:
             await query.edit_message_reply_markup(reply_markup=markup)
             return GET_COINS
 
-    # --- منوی اصلی ---
+    # -------------------------------------------------------------------------
+    # منوی اصلی
+    # -------------------------------------------------------------------------
     async def show_main_menu(self, update: Update, user_row):
         target = update.message if update.message else update.callback_query.message
         
@@ -405,7 +411,7 @@ class TradingBotUI:
         keyboard = [
             [btn_toggle],
             ['📊 گزارش حساب', '🗑 حذف حساب'],
-            ['🔄 شروع مجدد / تنظیمات جدید']  # نام دکمه تغییر کرد
+            ['➕ افزودن حساب جدید / تنظیمات مجدد']  # دکمه جدید
         ]
 
         if self.admin.is_admin(user_row['telegram_id']):
@@ -416,14 +422,11 @@ class TradingBotUI:
         await target.reply_text(
             f"👤 کاربر: **{user_row['full_name']}**\n"
             f"وضعیت ربات: {status}\n\n"
-            "منوی اصلی:",
+            "منو:",
             reply_markup=markup,
             parse_mode='Markdown'
         )
 
-    # -------------------------------------------------------------------------
-    # هندلر منو
-    # -------------------------------------------------------------------------
     async def menu_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = update.message.text
         uid = update.effective_user.id
@@ -446,10 +449,6 @@ class TradingBotUI:
             kb = [[InlineKeyboardButton("بله حذف شود", callback_data="DEL_YES"), InlineKeyboardButton("لغو", callback_data="DEL_NO")]]
             await update.message.reply_text("آیا مطمئن هستید؟", reply_markup=InlineKeyboardMarkup(kb))
             
-        elif "شروع مجدد" in text or "ویرایش" in text:
-            await update.message.reply_text("🔄 بسیار خب، تنظیمات را از نو انجام می‌دهیم...")
-            return await self.get_name(update, context)
-            
         elif "گزارش" in text:
             conn = self.db.get_connection()
             cur = conn.cursor()
@@ -460,19 +459,15 @@ class TradingBotUI:
                 try: coins = json.loads(u['allowed_coins'])
                 except: coins = []
                 
-                # خلاصه کردن لیست ارزها
                 c_len = len(coins)
-                if c_len > 20:
-                    coins_str = f"({c_len} ارز انتخاب شده)"
-                else:
-                    coins_str = ", ".join(coins)
+                if c_len > 20: coins_str = f"({c_len} ارز انتخاب شده)"
+                else: coins_str = ", ".join(coins)
 
                 msg = (
-                    f"📊 **گزارش حساب:**\n"
+                    f"📊 **گزارش:**\n"
                     f"👤 {u['full_name']}\n"
-                    f"📱 {u['phone_number']}\n"
-                    f"💰 خرید تومانی: {u['buy_amount_tmn']:,}\n"
-                    f"💰 خرید تتری: {u['buy_amount_usdt']}\n"
+                    f"💰 تومانی: {u['buy_amount_tmn']:,}\n"
+                    f"💰 تتری: {u['buy_amount_usdt']}\n"
                     f"🛑 حد ضرر: {u['stop_loss_percent']}%\n"
                     f"🪙 ارزها: {coins_str}"
                 )
@@ -481,12 +476,11 @@ class TradingBotUI:
         elif "پنل مدیریت" in text or "/admin" in text:
             await self.admin_panel(update, context)
 
-    # ... (توابع ادمین پنل، حذف و کنسل سر جای خودشان هستند) ...
     async def admin_panel(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
         if not self.admin.is_admin(user_id): return 
         stats_msg = self.admin.get_quick_stats()
-        keyboard = [[InlineKeyboardButton("📥 دانلود فایل اکسل کامل", callback_data="ADMIN_DOWNLOAD_EXCEL")]]
+        keyboard = [[InlineKeyboardButton("📥 دانلود اکسل", callback_data="ADMIN_DOWNLOAD_EXCEL")]]
         if update.message: await update.message.reply_text(stats_msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
         else: await update.callback_query.message.reply_text(stats_msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
@@ -498,7 +492,7 @@ class TradingBotUI:
             await query.answer("⏳ در حال تولید...")
             filename = self.admin.generate_excel_report()
             if filename:
-                await query.message.reply_document(document=open(filename, 'rb'), caption="📂 گزارش کامل", filename=filename)
+                await query.message.reply_document(document=open(filename, 'rb'), caption="📂 گزارش", filename=filename)
                 self.admin.clean_up_file(filename)
             else: await query.message.reply_text("خطا در اکسل.")
 
@@ -521,7 +515,8 @@ class TradingBotUI:
         conv = ConversationHandler(
             entry_points=[
                 CommandHandler("start", self.start), 
-                MessageHandler(filters.Regex('شروع مجدد|ویرایش'), self.start)
+                # این خط دکمه افزودن حساب را به ویزارد وصل می‌کند
+                MessageHandler(filters.Regex('افزودن حساب|تنظیمات مجدد'), self.restart_wizard)
             ],
             states={
                 GET_NAME: [MessageHandler(filters.TEXT, self.get_name)],
@@ -541,7 +536,7 @@ class TradingBotUI:
         self.app.add_handler(CommandHandler("admin", self.admin_panel))
         self.app.add_handler(CallbackQueryHandler(self.admin_actions, pattern="^ADMIN_"))
         self.app.add_handler(MessageHandler(filters.TEXT, self.menu_handler))
-        print("🤖 Bot Running with Select All & Restart...")
+        print("🤖 Bot Running (Final Version)...")
         self.app.run_polling()
 
 if __name__ == "__main__":
